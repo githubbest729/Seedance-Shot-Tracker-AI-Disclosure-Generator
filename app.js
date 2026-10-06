@@ -56,7 +56,7 @@ function stats() {
 }
 
 const promptBox = (k, label, v, ph) => { const n = (v || '').length;
-  return `<label>${label}<span class="box"><textarea data-k="${k}" rows="4" placeholder="${ph}">${esc(v)}</textarea><span class="cc${n > LIM ? ' over' : ''}" data-cc="${k}">${n}/${LIM}</span></span></label>`; };
+  return `<label>${label}<span class="box"><textarea data-k="${k}" rows="4" placeholder="${ph}">${esc(v)}</textarea><button type="button" class="copy" data-act="copy" data-for="${k}" aria-label="Copy ${label}">Copy</button><span class="cc${n > LIM ? ' over' : ''}" data-cc="${k}">${n}/${LIM}</span></span></label>`; };
 const previews = {}; // session-only blob URLs; only filenames are saved
 function shotHtml(sh, i, j) {
   const miss = !sh.file.trim();
@@ -64,7 +64,7 @@ function shotHtml(sh, i, j) {
   <div class="shot-head">
     <input data-k="title" value="${esc(sh.title)}" placeholder="Shot name (e.g. scene 3, take 2)" aria-label="Shot name">
     <select data-k="status" aria-label="Status">${STATUS.map(s => `<option ${s === sh.status ? 'selected' : ''}>${s}</option>`).join('')}</select>
-    <button data-act="delShot">Delete</button>
+    <span class="shot-btns"><button data-act="shotUp" aria-label="Move shot up">Up</button><button data-act="shotDown" aria-label="Move shot down">Down</button><button data-act="dup">Duplicate</button><button data-act="delShot">Delete</button></span>
   </div>
   <div class="cols">
     ${promptBox('visual', 'Visual prompt', sh.visual, 'e.g., Medium shot, cinematic lighting, rain on a neon street at night')}
@@ -126,6 +126,8 @@ document.addEventListener('input', e => {
   } else return;
   save(); stats();
 });
+function tip(b, msg) { b.dataset.tip = msg; b.classList.add('tipped'); clearTimeout(b._t); b._t = setTimeout(() => b.classList.remove('tipped'), 1200); }
+document.addEventListener('keydown', e => { if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') { e.preventDefault(); flush(); } });
 function attach(f, c) {
   if (!f) return;
   if (!(f.type.startsWith('video/') || /\.(mp4|mov|webm)$/i.test(f.name))) return alert('Drop a video file such as an .mp4.');
@@ -147,6 +149,17 @@ document.addEventListener('click', e => {
   const a = e.target.dataset.act; if (!a) return;
   const sc = e.target.closest('.scene'), i = sc && +sc.dataset.i, c = e.target.closest('.shot'), j = c && +c.dataset.j;
   if (a === 'fold') S.scenes[i].collapsed = !S.scenes[i].collapsed;
+  if (a === 'copy') {
+    const b = e.target, v = c.querySelector(`[data-k="${b.dataset.for}"]`).value;
+    (navigator.clipboard ? navigator.clipboard.writeText(v) : Promise.reject()).then(() => tip(b, 'Copied!'), () => tip(b, 'Copy failed'));
+    return;
+  }
+  if (a === 'shotUp' && j > 0) { const L = S.scenes[i].shots; [L[j - 1], L[j]] = [L[j], L[j - 1]]; }
+  if (a === 'shotDown' && j < S.scenes[i].shots.length - 1) { const L = S.scenes[i].shots; [L[j + 1], L[j]] = [L[j], L[j + 1]]; }
+  if (a === 'dup') {
+    resetView(); const L = S.scenes[i].shots, o = L[j];
+    L.splice(j + 1, 0, { ...o, id: uid(), title: (o.title || 'Shot') + ' (copy)', status: 'planned', file: '' });
+  }
   if (a === 'pick') { c.querySelector('[data-pick]').click(); return; }
   if (a === 'addShot') resetView(), S.scenes[i].shots.push({ id: uid(), title: `Shot ${S.scenes[i].shots.length + 1}`, status: 'planned', visual: '', motion: '', audio: '', refs: '', file: '', notes: '' });
   if (a === 'delShot' && confirm('Delete this shot and its prompts?')) S.scenes[i].shots.splice(j, 1);
