@@ -1,4 +1,4 @@
-const CACHE = 'shot-tracker-v2';
+const CACHE = 'shot-tracker-v3';
 const FILES = [
   './', './index.html', './style.css', './app.js', './manifest.json',
   './icon.svg', './favicon.ico', './apple-touch-icon.png',
