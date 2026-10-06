@@ -46,9 +46,13 @@ const $ = s => document.querySelector(s);
 const esc = v => String(v ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const shots = () => S.scenes.flatMap(s => s.shots);
 
+const W = { planned: 0, prompted: 25, generated: 75, edited: 100 };
 function stats() {
   const all = shots(), got = all.filter(x => x.file.trim()).length;
-  $('#stats').textContent = `${S.scenes.length} scenes, ${all.length} shots, ${got} linked to a downloaded file` + (all.length - got ? `, ${all.length - got} still missing a filename` : '');
+  const pct = all.length ? Math.round(all.reduce((n, x) => n + (W[x.status] || 0), 0) / all.length) : 0;
+  $('#bar').style.width = pct + '%';
+  $('.progress').setAttribute('aria-valuenow', pct);
+  $('#stats').textContent = `${pct}% complete. ${S.scenes.length} scenes, ${all.length} shots, ${got} linked to a file` + (all.length - got ? `, ${all.length - got} missing a filename` : '');
 }
 
 const promptBox = (k, label, v, ph) => { const n = (v || '').length;
@@ -76,10 +80,22 @@ function shotHtml(sh, i, j) {
   </div>`;
 }
 
+const view = { filter: 'all', q: '' };
+const has = (v, q) => (v || '').toLowerCase().includes(q);
+const sceneHit = sc => view.q && (has(sc.title, view.q) || has(sc.summary, view.q));
+const shotHit = sh => ['title', 'visual', 'motion', 'audio', 'refs', 'file', 'notes'].some(k => has(sh[k], view.q));
+const visShots = sc => sc.shots.map((sh, j) => [sh, j]).filter(([sh]) =>
+  (view.filter === 'all' || (view.filter === 'missing' ? !sh.file.trim() : sh.status === view.filter)) &&
+  (!view.q || sceneHit(sc) || shotHit(sh)));
+function resetView() { view.filter = 'all'; view.q = ''; $('#filter').value = 'all'; $('#search').value = ''; }
+
 function render() {
   document.querySelectorAll('[data-meta]').forEach(el => el.value = S.meta[el.dataset.meta] || '');
-  $('#scenes').innerHTML = S.scenes.length ? S.scenes.map((sc, i) => {
-    const open = !sc.collapsed, miss = sc.shots.filter(x => !x.file.trim()).length;
+  const active = view.filter !== 'all' || view.q;
+  const html = S.scenes.map((sc, i) => {
+    const vis = visShots(sc);
+    if (active && !vis.length && !(view.filter === 'all' && sceneHit(sc))) return '';
+    const open = !sc.collapsed || active, miss = sc.shots.filter(x => !x.file.trim()).length;
     return `<section class="scene${open ? '' : ' collapsed'}" data-i="${i}">
     <div class="scene-head">
       <button data-act="fold" aria-expanded="${open}" aria-label="${open ? 'Collapse' : 'Expand'} scene">${open ? '▾' : '▸'}</button>
@@ -89,9 +105,10 @@ function render() {
       <button data-act="delScene">Delete</button>
     </div>
     ${open ? `<label>Scene summary<textarea data-s="summary" rows="2">${esc(sc.summary)}</textarea></label>
-    ${sc.shots.map((sh, j) => shotHtml(sh, i, j)).join('')}
+    ${vis.map(([sh, j]) => shotHtml(sh, i, j)).join('')}
     <p><button data-act="addShot">Add shot</button></p>` : ''}
-  </section>`; }).join('') : '<p class="empty">No scenes yet. Add your first scene to start planning the film.</p>';
+  </section>`; }).join('');
+  $('#scenes').innerHTML = S.scenes.length ? (html || '<p class="empty">No shots match the current filter or search.</p>') : '<p class="empty">No scenes yet. Add your first scene to start planning the film.</p>';
   $('#foldAll').textContent = S.scenes.some(s => !s.collapsed) ? 'Collapse all scenes' : 'Expand all scenes';
   stats();
 }
@@ -131,7 +148,7 @@ document.addEventListener('click', e => {
   const sc = e.target.closest('.scene'), i = sc && +sc.dataset.i, c = e.target.closest('.shot'), j = c && +c.dataset.j;
   if (a === 'fold') S.scenes[i].collapsed = !S.scenes[i].collapsed;
   if (a === 'pick') { c.querySelector('[data-pick]').click(); return; }
-  if (a === 'addShot') S.scenes[i].shots.push({ id: uid(), title: `Shot ${S.scenes[i].shots.length + 1}`, status: 'planned', visual: '', motion: '', audio: '', refs: '', file: '', notes: '' });
+  if (a === 'addShot') resetView(), S.scenes[i].shots.push({ id: uid(), title: `Shot ${S.scenes[i].shots.length + 1}`, status: 'planned', visual: '', motion: '', audio: '', refs: '', file: '', notes: '' });
   if (a === 'delShot' && confirm('Delete this shot and its prompts?')) S.scenes[i].shots.splice(j, 1);
   if (a === 'delScene' && confirm('Delete this scene and all its shots?')) S.scenes.splice(i, 1);
   if (a === 'up' && i > 0) [S.scenes[i - 1], S.scenes[i]] = [S.scenes[i], S.scenes[i - 1]];
@@ -141,6 +158,18 @@ document.addEventListener('click', e => {
 $('#addScene').onclick = () => { S.scenes.push({ id: uid(), title: '', summary: '', shots: [] }); save(); render(); };
 
 $('#foldAll').onclick = () => { const c = S.scenes.some(s => !s.collapsed); S.scenes.forEach(s => { s.collapsed = c; }); save(); render(); };
+
+$('#filter').onchange = e => { view.filter = e.target.value; render(); };
+let searchTimer;
+$('#search').oninput = e => { clearTimeout(searchTimer); searchTimer = setTimeout(() => { view.q = e.target.value.trim().toLowerCase(); render(); }, 150); };
+
+function csv() {
+  const cell = v => { let t = String(v ?? ''); if (/^[=+\-@]/.test(t)) t = "'" + t; return '"' + t.replace(/"/g, '""') + '"'; };
+  const rows = [['Scene Title', 'Shot Title', 'Status', 'Visual Prompt', 'Motion Prompt', 'Audio Prompt', 'Reference Assets', 'Downloaded Filename', 'Notes']];
+  S.scenes.forEach(sc => sc.shots.forEach(sh => rows.push([sc.title, sh.title, sh.status, sh.visual, sh.motion, sh.audio, sh.refs, sh.file, sh.notes])));
+  return '\uFEFF' + rows.map(r => r.map(cell).join(',')).join('\r\n');
+}
+$('#exportCsv').onclick = () => dl(csv(), 'seedance-shots.csv', 'text/csv');
 
 function disclosure() {
   const m = S.meta, L = [];

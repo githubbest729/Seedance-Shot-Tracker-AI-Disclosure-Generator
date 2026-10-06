@@ -19,12 +19,16 @@
 <body>
 <header class="top">
   <h1>Shot tracker</h1>
+  <div class="progress" role="progressbar" aria-label="Film completion" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><div id="bar"></div></div>
   <div id="stats" class="stats"></div>
   <nav class="actions">
     <button id="addScene" class="primary">Add scene</button>
     <button id="foldAll">Collapse all scenes</button>
+    <select id="filter" aria-label="Filter shots"><option value="all">All shots</option><option value="missing">Missing files only</option><option value="planned">planned</option><option value="prompted">prompted</option><option value="generated">generated</option><option value="edited">edited</option></select>
+    <input id="search" type="search" placeholder="Search titles and prompts" aria-label="Search scenes and shots">
     <button id="exportTxt">Share disclosure</button>
     <button id="exportPdf">Print / save as PDF</button>
+    <button id="exportCsv">Export CSV</button>
     <button id="backup">Backup</button>
     <label class="btn">Restore<input type="file" id="restore" accept=".json" hidden></label>
     <span id="saveState" class="save-state" role="status" aria-live="polite"></span>
