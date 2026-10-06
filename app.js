@@ -2,9 +2,46 @@ const KEY = 'seedance-tracker-v1';
 const STATUS = ['planned', 'prompted', 'generated', 'edited'];
 const uid = () => Math.random().toString(36).slice(2, 9);
 const blank = () => ({ meta: { title: '', creator: '', contest: '', tool: 'Seedance', human: '' }, scenes: [] });
-let S;
-try { S = JSON.parse(localStorage.getItem(KEY)) || blank(); } catch { S = blank(); }
-const save = () => { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) { alert('Could not save: browser storage is full or blocked.'); } };
+let S = blank(), dbp, timer, fade, pending = false;
+const LIM = 1000;
+const idb = () => new Promise((res, rej) => {
+  const r = indexedDB.open('seedance-tracker', 1);
+  r.onupgradeneeded = () => r.result.createObjectStore('kv');
+  r.onsuccess = () => res(r.result);
+  r.onerror = () => rej(r.error);
+});
+const tx = async (mode, fn) => {
+  const db = await (dbp ||= idb());
+  return new Promise((res, rej) => {
+    const t = db.transaction('kv', mode), rq = fn(t.objectStore('kv'));
+    t.oncomplete = () => res(rq && rq.result);
+    t.onerror = t.onabort = () => rej(t.error);
+  });
+};
+async function init() {
+  try {
+    let d = await tx('readonly', st => st.get('project'));
+    if (!d) { // one-time migration from localStorage
+      const old = localStorage.getItem(KEY);
+      if (old) { d = JSON.parse(old); await tx('readwrite', st => st.put(d, 'project')); localStorage.removeItem(KEY); }
+    }
+    if (d) S = d;
+    if (navigator.storage && navigator.storage.persist) navigator.storage.persist();
+  } catch (e) { showSave('Storage unavailable. Use Backup often.', true); }
+}
+function showSave(msg, err) {
+  const el = $('#saveState'); el.textContent = msg;
+  el.classList.toggle('err', !!err); el.classList.add('show');
+  clearTimeout(fade); if (!err) fade = setTimeout(() => el.classList.remove('show'), 3000);
+}
+async function flush() {
+  clearTimeout(timer); pending = false;
+  try {
+    await tx('readwrite', st => st.put(S, 'project'));
+    showSave(`Changes saved locally at ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`);
+  } catch (e) { showSave('Save failed. Use Backup now.', true); }
+}
+const save = () => { pending = true; clearTimeout(timer); timer = setTimeout(flush, 400); };
 const $ = s => document.querySelector(s);
 const esc = v => String(v ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const shots = () => S.scenes.flatMap(s => s.shots);
@@ -14,6 +51,8 @@ function stats() {
   $('#stats').textContent = `${S.scenes.length} scenes, ${all.length} shots, ${got} linked to a downloaded file` + (all.length - got ? `, ${all.length - got} still missing a filename` : '');
 }
 
+const promptBox = (k, label, v, ph) => { const n = (v || '').length;
+  return `<label>${label}<span class="box"><textarea data-k="${k}" rows="4" placeholder="${ph}">${esc(v)}</textarea><span class="cc${n > LIM ? ' over' : ''}" data-cc="${k}">${n}/${LIM}</span></span></label>`; };
 const previews = {}; // session-only blob URLs; only filenames are saved
 function shotHtml(sh, i, j) {
   const miss = !sh.file.trim();
@@ -24,9 +63,9 @@ function shotHtml(sh, i, j) {
     <button data-act="delShot">Delete</button>
   </div>
   <div class="cols">
-    <label>Visual prompt<textarea data-k="visual" rows="4" placeholder="e.g., Medium shot, cinematic lighting, rain on a neon street at night">${esc(sh.visual)}</textarea></label>
-    <label>Motion prompt<textarea data-k="motion" rows="4" placeholder="e.g., Slow dolly in, subtle handheld sway, character turns to camera">${esc(sh.motion)}</textarea></label>
-    <label>Audio prompt<textarea data-k="audio" rows="4" placeholder="e.g., Distant thunder, soft synth pad, whispered dialogue">${esc(sh.audio)}</textarea></label>
+    ${promptBox('visual', 'Visual prompt', sh.visual, 'e.g., Medium shot, cinematic lighting, rain on a neon street at night')}
+    ${promptBox('motion', 'Motion prompt', sh.motion, 'e.g., Slow dolly in, subtle handheld sway, character turns to camera')}
+    ${promptBox('audio', 'Audio prompt', sh.audio, 'e.g., Distant thunder, soft synth pad, whispered dialogue')}
   </div>
   <label>Reference assets (up to 12: images, video, audio)<input data-k="refs" value="${esc(sh.refs)}" placeholder="e.g., hero_front.png, street_ref.mp4, theme_temp.wav"></label>
   <label>Downloaded filename <span class="nofile" ${miss ? '' : 'hidden'}>not linked yet</span><input class="file${miss ? ' missing' : ''}" data-k="file" value="${esc(sh.file)}" placeholder="scene_03_take_02.mp4"></label>
@@ -39,16 +78,21 @@ function shotHtml(sh, i, j) {
 
 function render() {
   document.querySelectorAll('[data-meta]').forEach(el => el.value = S.meta[el.dataset.meta] || '');
-  $('#scenes').innerHTML = S.scenes.length ? S.scenes.map((sc, i) => `<section class="scene" data-i="${i}">
+  $('#scenes').innerHTML = S.scenes.length ? S.scenes.map((sc, i) => {
+    const open = !sc.collapsed, miss = sc.shots.filter(x => !x.file.trim()).length;
+    return `<section class="scene${open ? '' : ' collapsed'}" data-i="${i}">
     <div class="scene-head">
+      <button data-act="fold" aria-expanded="${open}" aria-label="${open ? 'Collapse' : 'Expand'} scene">${open ? '▾' : '▸'}</button>
       <input data-s="title" value="${esc(sc.title)}" placeholder="Scene ${i + 1} title" aria-label="Scene title">
+      ${open ? '' : `<span class="count">${sc.shots.length} shots${miss ? `, ${miss} unlinked` : ''}</span>`}
       <button data-act="up" aria-label="Move scene up">Up</button><button data-act="down" aria-label="Move scene down">Down</button>
       <button data-act="delScene">Delete</button>
     </div>
-    <label>Scene summary<textarea data-s="summary" rows="2">${esc(sc.summary)}</textarea></label>
+    ${open ? `<label>Scene summary<textarea data-s="summary" rows="2">${esc(sc.summary)}</textarea></label>
     ${sc.shots.map((sh, j) => shotHtml(sh, i, j)).join('')}
-    <p><button data-act="addShot">Add shot</button></p>
-  </section>`).join('') : '<p class="empty">No scenes yet. Add your first scene to start planning the film.</p>';
+    <p><button data-act="addShot">Add shot</button></p>` : ''}
+  </section>`; }).join('') : '<p class="empty">No scenes yet. Add your first scene to start planning the film.</p>';
+  $('#foldAll').textContent = S.scenes.some(s => !s.collapsed) ? 'Collapse all scenes' : 'Expand all scenes';
   stats();
 }
 
@@ -60,6 +104,8 @@ document.addEventListener('input', e => {
     const c = t.closest('.shot'); S.scenes[c.dataset.i].shots[c.dataset.j][t.dataset.k] = t.value;
     if (t.dataset.k === 'status') c.className = 'shot st-' + t.value;
     if (t.dataset.k === 'file') { const m = !t.value.trim(); t.classList.toggle('missing', m); c.querySelector('.nofile').hidden = !m; }
+    const cc = c.querySelector(`[data-cc="${t.dataset.k}"]`);
+    if (cc) { cc.textContent = `${t.value.length}/${LIM}`; cc.classList.toggle('over', t.value.length > LIM); }
   } else return;
   save(); stats();
 });
@@ -83,6 +129,7 @@ document.addEventListener('drop', e => {
 document.addEventListener('click', e => {
   const a = e.target.dataset.act; if (!a) return;
   const sc = e.target.closest('.scene'), i = sc && +sc.dataset.i, c = e.target.closest('.shot'), j = c && +c.dataset.j;
+  if (a === 'fold') S.scenes[i].collapsed = !S.scenes[i].collapsed;
   if (a === 'pick') { c.querySelector('[data-pick]').click(); return; }
   if (a === 'addShot') S.scenes[i].shots.push({ id: uid(), title: `Shot ${S.scenes[i].shots.length + 1}`, status: 'planned', visual: '', motion: '', audio: '', refs: '', file: '', notes: '' });
   if (a === 'delShot' && confirm('Delete this shot and its prompts?')) S.scenes[i].shots.splice(j, 1);
@@ -92,6 +139,8 @@ document.addEventListener('click', e => {
   save(); render();
 });
 $('#addScene').onclick = () => { S.scenes.push({ id: uid(), title: '', summary: '', shots: [] }); save(); render(); };
+
+$('#foldAll').onclick = () => { const c = S.scenes.some(s => !s.collapsed); S.scenes.forEach(s => { s.collapsed = c; }); save(); render(); };
 
 function disclosure() {
   const m = S.meta, L = [];
@@ -118,10 +167,14 @@ $('#exportTxt').onclick = async () => {
   dl(text, 'ai-disclosure.txt', 'text/plain');
 };
 $('#exportPdf').onclick = () => { $('#printArea').innerHTML = `<pre>${esc(disclosure())}</pre>`; window.print(); };
-$('#backup').onclick = () => dl(JSON.stringify(S, null, 2), 'seedance-tracker-backup.json', 'application/json');
+$('#backup').onclick = async () => {
+  if (pending) await flush();
+  const data = (await tx('readonly', st => st.get('project'))) || S;
+  dl(JSON.stringify(data, null, 2), 'seedance-tracker-backup.json', 'application/json');
+};
 $('#restore').onchange = e => {
   const f = e.target.files[0]; if (!f) return;
-  f.text().then(t => { const d = JSON.parse(t); if (!d.scenes || !d.meta) throw 0; S = d; save(); render(); }).catch(() => alert('That file is not a valid tracker backup.'));
+  f.text().then(t => { const d = JSON.parse(t); if (!d.scenes || !d.meta) throw 0; S = d; return flush().then(render); }).catch(() => alert('That file is not a valid tracker backup.'));
 };
 function dl(text, name, type) {
   const a = document.createElement('a');
@@ -129,5 +182,6 @@ function dl(text, name, type) {
   setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 }
 
-render();
+init().then(render);
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden' && pending) flush(); });
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});

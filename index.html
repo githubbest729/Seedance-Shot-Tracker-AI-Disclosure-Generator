@@ -22,10 +22,12 @@
   <div id="stats" class="stats"></div>
   <nav class="actions">
     <button id="addScene" class="primary">Add scene</button>
+    <button id="foldAll">Collapse all scenes</button>
     <button id="exportTxt">Share disclosure</button>
     <button id="exportPdf">Print / save as PDF</button>
     <button id="backup">Backup</button>
     <label class="btn">Restore<input type="file" id="restore" accept=".json" hidden></label>
+    <span id="saveState" class="save-state" role="status" aria-live="polite"></span>
   </nav>
 </header>
 <details class="meta" open>
