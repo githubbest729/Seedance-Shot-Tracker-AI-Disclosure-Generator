@@ -42,7 +42,9 @@ async function flush() {
   } catch (e) { showSave('Save failed. Use Backup now.', true); }
 }
 const save = () => { pending = true; clearTimeout(timer); timer = setTimeout(flush, 400); };
-const $ = s => document.querySelector(s);
+const missing = new Set();
+// Never returns null: a missing element yields a detached stand-in, so one absent id can't halt the app.
+const $ = s => document.querySelector(s) || (missing.has(s) || (missing.add(s), console.warn('Missing element:', s)), document.createElement('div'));
 const esc = v => String(v ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const shots = () => S.scenes.flatMap(s => s.shots);
 
@@ -177,7 +179,7 @@ let searchTimer;
 $('#search').oninput = e => { clearTimeout(searchTimer); searchTimer = setTimeout(() => { view.q = e.target.value.trim().toLowerCase(); render(); }, 150); };
 
 function csv() {
-  const cell = v => { let t = String(v ?? ''); if (/^[=+\-@]/.test(t)) t = "'" + t; return '"' + t.replace(/"/g, '""') + '"'; };
+  const cell = v => { let t = String(v ?? '').replace(/\r\n?/g, '\n'); if (/^[=+\-@\t]/.test(t)) t = "'" + t; return '"' + t.replace(/"/g, '""') + '"'; };
   const rows = [['Scene Title', 'Shot Title', 'Status', 'Visual Prompt', 'Motion Prompt', 'Audio Prompt', 'Reference Assets', 'Downloaded Filename', 'Notes']];
   S.scenes.forEach(sc => sc.shots.forEach(sh => rows.push([sc.title, sh.title, sh.status, sh.visual, sh.motion, sh.audio, sh.refs, sh.file, sh.notes])));
   return '\uFEFF' + rows.map(r => r.map(cell).join(',')).join('\r\n');
