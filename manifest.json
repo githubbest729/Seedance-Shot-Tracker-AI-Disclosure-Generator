@@ -1,0 +1,10 @@
+{
+  "name": "Seedance Shot Tracker & AI Disclosure Generator",
+  "short_name": "Shot Tracker",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#14110f",
+  "theme_color": "#14110f",
+  "icons": [{ "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }]
+}

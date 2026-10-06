@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Seedance Shot Tracker</title>
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon.svg">
+<meta name="theme-color" content="#14110f">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="top">
+  <h1>Shot tracker</h1>
+  <div id="stats" class="stats"></div>
+  <nav class="actions">
+    <button id="addScene" class="primary">Add scene</button>
+    <button id="exportTxt">Export disclosure (.txt)</button>
+    <button id="exportPdf">Print / save as PDF</button>
+    <button id="backup">Backup</button>
+    <label class="btn">Restore<input type="file" id="restore" accept=".json" hidden></label>
+  </nav>
+</header>
+<details class="meta" open>
+  <summary>Project and disclosure details</summary>
+  <div class="grid">
+    <label>Film title<input data-meta="title"></label>
+    <label>Creator<input data-meta="creator"></label>
+    <label>Contest<input data-meta="contest"></label>
+    <label>AI tools used<input data-meta="tool" placeholder="Seedance 2.0, CapCut"></label>
+  </div>
+  <label>Human contribution (script, editing, voice, music, etc.)<textarea data-meta="human" rows="3"></textarea></label>
+</details>
+<main id="scenes"></main>
+<section id="printArea" aria-hidden="true"></section>
+<script src="app.js"></script>
+</body>
+</html>
